@@ -59,15 +59,51 @@ java -jar target/operations-0.0.1-SNAPSHOT.jar
 
 ---
 
+---
+
 ## Database Configuration & Demo Setup
 
-### Automatic Schema Initialization
-The service uses Spring Data JPA with `spring.jpa.hibernate.ddl-auto=update` and PostgreSQL dialect (`org.hibernate.dialect.PostgreSQLDialect`). On first startup against a fresh database (e.g. `operations` or disposable `operations_test`), Hibernate automatically initializes all tables, unique constraints, and foreign keys:
+### Automatic Schema & Demo Data Initialization
+The service uses Spring Data JPA with `spring.jpa.hibernate.ddl-auto=update` and PostgreSQL dialect (`org.hibernate.dialect.PostgreSQLDialect`). On startup against any clean database (e.g. `operations` or disposable `operations_test`), Hibernate automatically initializes all tables, unique constraints, and foreign keys:
 - `users` (unique email constraint `uk_users_email`)
 - `teams` (unique name constraint `uk_teams_name`)
 - `team_memberships` (composite unique constraint `uk_team_memberships_team_user`, FKs to teams and users)
 - `work_items` (optimistic locking `@Version`, FKs to teams and users, indexes on status, team, and assignee)
 - `activity_logs` (append-only audit log, composite index on `(work_item_id, created_at)`)
+
+When `app.seed.enabled=true` (enabled by default in `application.properties`), the application automatically and idempotently seeds a core operational team, three demo operators with distinct roles, and four representative work items spanning the full lifecycle.
+
+### Seeded Demo Identities & Team
+
+| Operator | Email | Role in SRE Team | Operational Capabilities |
+|---|---|---|---|
+| **Alice Chen** | `alice.chen@newtonite.com` | `TEAM_LEAD` | Create, claim, release, complete, override/reassign any team work item, manage team roster |
+| **Bob Martinez** | `bob.martinez@newtonite.com` | `MEMBER` | Create, claim open items, manage own assigned items (notes, priority, complete, release) |
+| **Carol Danvers** | `carol.danvers@newtonite.com` | `MEMBER` | Create, claim open items, manage own assigned items |
+
+**Operational Team:** `Site Reliability Engineering` (*Platform observability, incident response, and mission-critical production operations*).
+
+### Seeded Representative Work Items
+
+1. **`#1` Investigate latency spike on payment gateway** (Priority: `HIGH`, Status: `IN_PROGRESS`, Assignee: `Bob Martinez`)
+   - Pre-loaded with full activity history: `CREATED` by Alice, `CLAIMED` by Bob, and a collaboration note (`NOTE_ADDED`) regarding connection pool starvation.
+2. **`#2` Mitigate Kafka consumer lag on order-events topic** (Priority: `URGENT`, Status: `OPEN`, Assignee: `Unassigned`)
+   - Ready for immediate claim in the **Unassigned Urgent** dashboard panel.
+3. **`#3` Renew TLS wild-card certificates on edge ingress** (Priority: `MEDIUM`, Status: `DONE`, Resolved by: `Alice Chen`)
+   - Completed incident demonstrating historical resolution and audit log.
+4. **`#4` Optimize database query plans for activity audit log** (Priority: `LOW`, Status: `OPEN`, Assignee: `Unassigned`)
+   - General backlog item available for triage.
+
+### Configuring or Disabling Demo Seeding
+To disable automatic seeding for staging, production, or benchmarking:
+```bash
+# Via Environment Variable
+export APP_SEED_ENABLED=false
+
+# Or via Spring Boot system property
+java -Dapp.seed.enabled=false -jar target/operations-0.0.1-SNAPSHOT.jar
+```
+Seeding is strictly idempotent: restarting the server with seeding enabled will never duplicate records, reset existing user edits, or delete operational data.
 
 ### Fresh / Disposable Database Setup
 To test against a completely separate, clean database without touching existing operational data:
@@ -81,37 +117,52 @@ $env:SPRING_DATASOURCE_USERNAME="postgres"
 $env:SPRING_DATASOURCE_PASSWORD="your_password_here"
 ```
 
-### Initial Demo Data Setup (via REST API)
-1. **Create an Operational User:**
-   ```bash
-   curl -X POST http://localhost:8080/api/users \
-     -H "Content-Type: application/json" \
-     -d '{"displayName": "Alice Admin", "email": "alice@newtonite.com"}'
-   ```
-2. **Create a Team:**
-   ```bash
-   curl -X POST http://localhost:8080/api/teams \
-     -H "Content-Type: application/json" \
-     -d '{"name": "Site Reliability Engineering", "description": "24/7 Operations"}'
-   ```
-3. **Bootstrap Initial Team Lead (First Member):**
-   ```bash
-   curl -X POST "http://localhost:8080/api/teams/1/members" \
-     -H "Content-Type: application/json" \
-     -d '{"userId": 1, "role": "TEAM_LEAD"}'
-   ```
-4. **Create a Work Item:**
-   ```bash
-   curl -X POST http://localhost:8080/api/work-items \
-     -H "Content-Type: application/json" \
-     -d '{"title": "Investigate CPU spike on prod cluster", "description": "Node pool 3 high usage", "priority": "HIGH", "teamId": 1, "creatorId": 1}'
-   ```
-5. **Claim the Work Item (Optimistic Concurrency Protected):**
-   ```bash
-   curl -X POST "http://localhost:8080/api/work-items/1/claim?userId=1"
-   ```
+---
+
+## 3–5 Minute Evaluator Demo Walkthrough
+
+Follow these steps to experience the complete Newtonite operational workflow:
+
+1. **Launch Services:**
+   - Ensure PostgreSQL is running on port 5432 (or run `docker compose up -d`).
+   - Run backend: `java -jar target/operations-0.0.1-SNAPSHOT.jar`
+   - Run frontend: `cd frontend && npm run dev` (opens at `http://localhost:5173`).
+
+2. **Select Demo Identity:**
+   - Navigate to `http://localhost:5173`.
+   - The **"Who are you?"** operator picker displays the seeded operators.
+   - Click **Select** on **Bob Martinez** (`bob.martinez@newtonite.com`, Member).
+
+3. **Explore Dashboard Panels:**
+   - **Assigned to Me:** Shows item `#1` (*Investigate latency spike* - `IN_PROGRESS`).
+   - **Unassigned Urgent:** Shows item `#2` (*Mitigate Kafka consumer lag* - `URGENT`, `OPEN`).
+   - **Awaiting My Approval:** Displays the honest architectural unavailable-state notice explaining that the backend schema enforces direct lifecycle transitions (`OPEN → IN_PROGRESS → DONE`) without multi-tier approval gates.
+
+4. **One-Click Urgent Claim:**
+   - In the **Unassigned Urgent** panel, click **Claim Work Item** on item `#2`.
+   - TanStack Query invalidates cache; item `#2` instantly moves to Bob's **Assigned to Me** panel.
+
+5. **Manage Work Item & Audit Timeline:**
+   - Click into item `#1` (*Investigate latency spike*).
+   - Scroll down to view the append-only **Activity History & Collaboration Notes** timeline (`CREATED`, `CLAIMED`, `NOTE_ADDED`).
+   - Add a collaboration note: type *"Scaled up database connection pool to 50"* and submit.
+   - Change Priority to `URGENT` via the priority dropdown.
+   - Click **Mark as Completed** to transition the item to `DONE`.
+
+6. **Demonstrate Role-Based Lead Privileges:**
+   - Click the top-right profile avatar and switch identity to **Alice Chen** (`TEAM_LEAD`).
+   - Navigate to **Teams** to view team members.
+   - Open any item assigned to another member; as `TEAM_LEAD`, Alice can reassign or release items back to the queue, while regular members can only manage items assigned to themselves.
+
+7. **Verify Optimistic Concurrency Conflict (HTTP 409):**
+   - Open two browser tabs on the same open item `#4`.
+   - In Tab 1, claim the item as Alice.
+   - In Tab 2 (before refreshing), attempt to claim the same item as Bob.
+   - Backend detects version mismatch / non-OPEN state and returns HTTP `409 CONFLICT`.
+   - Frontend displays the prominent **ConflictBanner** alerting the operator and offering a one-click state reload.
 
 ---
+
 
 ## REST API Overview
 
@@ -131,7 +182,7 @@ $env:SPRING_DATASOURCE_PASSWORD="your_password_here"
 ### Work Items
 - `POST /api/work-items` - Create work item (requires team membership)
 - `GET /api/work-items/{id}` - Get work item details
-- `GET /api/work-items?teamId={id}&status={status}` - Filter work items by team
+- `GET /api/work-items?teamId={id}&status={status}` - Filter work items by team (server-side status filtering; priority and keyword search are evaluated client-side for zero-latency triage)
 - `GET /api/work-items/assigned/{userId}?status={status}` - Get items assigned to user
 - `POST /api/work-items/{id}/claim?userId={id}` - Claim an open item (optimistic locking protected)
 - `POST /api/work-items/{id}/release?userId={id}` - Release in-progress item back to team queue (assignee or Team Lead)

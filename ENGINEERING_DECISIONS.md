@@ -62,7 +62,7 @@
 
 ## 6. Testing & Quality Assurance Verification
 
-- **Total Tests Passing:** 67 tests across 12 test suites with 0 failures, 0 errors, and 0 skipped.
+- **Total Tests Passing:** 70 tests across 13 test suites with 0 failures, 0 errors, and 0 skipped.
 - **Suite Breakdown:**
   - `OperationsApplicationTests`: Spring Boot context load test.
   - `TeamRepositoryTest`: Team entity uniqueness and queries.
@@ -75,3 +75,31 @@
   - `WorkItemControllerTest`: MockMvc integration tests for work-item workflow.
   - `UserControllerTest`: MockMvc integration tests for user endpoints.
   - `TeamControllerTest`: MockMvc integration tests for team & membership endpoints.
+  - `WorkItemDtoTest`: Bean validation constraint assertions on DTO models.
+  - `DataLoaderTest`: Verifies first-time seeding, repeated execution idempotency, and compatibility with pre-existing data.
+
+---
+
+## 7. Frontend Architecture & Client-Side Filtering Trade-Offs
+
+- **7.1 Component Architecture & State Management:**
+  - Built with React 19, Vite, React Router v7, and Tailwind CSS v4.
+  - TanStack Query v5 manages server state, providing stale-while-revalidate caching, query invalidation on mutation success or conflict, and centralized loading/error boundaries.
+- **7.2 Demo Identity Selection (Honest Architecture):**
+  - The backend domain model does not implement Spring Security, JWT authentication, or password storage.
+  - Rather than simulating fake security tokens or mock login screens, the frontend provides an explicit `"Who are you?"` operator picker backed by `GET /api/users?activeOnly=true`.
+  - The selected user ID is stored in `localStorage` and supplied in API requests to test authorization rules.
+  - A prominent architectural banner alerts the operator that this is a simulated identity for testing, preserving design integrity and honesty.
+- **7.3 Concurrency & HTTP 409 Conflict UX:**
+  - Under operational incident conditions, multiple users may attempt to claim, reassign, or complete the same work item concurrently.
+  - The frontend intercepts HTTP 409 Conflict errors across all mutations and displays a clear `ConflictBanner` offering a one-click state refresh.
+- **7.4 Client-Side vs Server-Side Filtering Trade-Off:**
+  - **Server-Side Status Filtering:** Lifecycle status is queried server-side (`GET /api/work-items?teamId={id}&status={status}`) leveraging the composite index `(team_id, status)` for fast database filtering.
+  - **Client-Side Priority & Keyword Search:** Priority filtering and text searching are evaluated in-memory on the client against the active team's items.
+  - **Rationale & Trade-off:** For team queues typical in operational workflows (tens to a few hundred items), in-memory filtering delivers instant, zero-latency feedback on filter toggles and search keystrokes without saturating the backend with repetitive queries.
+  - **Enterprise Evolution:** If team queues grow beyond thousands of concurrent items, server-side dynamic JPA Specifications and Spring Data `Pageable` pagination would be introduced.
+- **7.5 Idempotent Demo Seeding (`DataLoader`):**
+  - A dedicated Spring Boot `DataLoader` (`CommandLineRunner`) seeds a realistic operational team (`Site Reliability Engineering`), three demo operators (Team Lead + 2 Members), and 4 representative work items spanning OPEN, IN_PROGRESS, and DONE states.
+  - Seeding is strictly non-destructive: it verifies uniqueness constraints before inserting and will never duplicate records, reset user modifications, or wipe existing data across application restarts.
+  - Seeding can be disabled for production via `APP_SEED_ENABLED=false` or `app.seed.enabled=false`.
+

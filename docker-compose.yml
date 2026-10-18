@@ -1,0 +1,53 @@
+version: "3.9"
+
+# Operations Under Pressure — Local development stack
+#
+# Usage:
+#   docker compose up -d        # Start PostgreSQL (and optionally backend)
+#   docker compose down         # Stop containers (data volume is preserved)
+#   docker compose down -v      # Stop and remove the data volume
+#
+# The backend Spring Boot application reads connection details from environment
+# variables (see .env.example). You can run it separately with:
+#   java -jar target/operations-0.0.1-SNAPSHOT.jar
+# Or uncomment the 'backend' service below after building the JAR.
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: operations_postgres
+    environment:
+      POSTGRES_DB: operations
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d operations"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Spring Boot Backend (optional — uncomment after building JAR) ────────────
+  # backend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: operations_backend
+  #   environment:
+  #     SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/operations
+  #     SPRING_DATASOURCE_USERNAME: postgres
+  #     SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-postgres}
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
